@@ -317,7 +317,14 @@ async fn reconcile_tick(
     qemu.check_dhcp_liveness().await;
     cleanup_stale_resource_groups(client, api_key, firecracker, qemu).await;
 
-    let statuses = build_container_statuses(firecracker, running_containers, workload_phases).await;
+    let statuses = build_container_statuses(
+        firecracker,
+        qemu,
+        running_containers,
+        vm_workload_ids,
+        workload_phases,
+    )
+    .await;
     push_workload_stats(client, api_key, firecracker, running_containers).await;
     let metrics = system::collect_metrics();
 
@@ -941,14 +948,23 @@ async fn cleanup_stale_resource_groups(
 
 async fn build_container_statuses(
     firecracker: &firecracker::runtime::FirecrackerRuntime,
+    qemu: &qemu::runtime::QemuRuntime,
     running_containers: &Arc<Mutex<HashMap<String, String>>>,
+    vm_workload_ids: &Arc<Mutex<std::collections::HashSet<String>>>,
     workload_phases: &Arc<Mutex<HashMap<String, String>>>,
 ) -> Vec<client::ContainerStatus> {
     let containers = running_containers.lock().await.clone();
+    let vm_ids = vm_workload_ids.lock().await.clone();
     let mut statuses = Vec::with_capacity(containers.len());
 
     for (workload_id, container_id) in containers.iter() {
-        let status = match firecracker.inspect_status(container_id).await {
+        let runtime: &dyn runtime::Runtime = if vm_ids.contains(workload_id) {
+            qemu
+        } else {
+            firecracker
+        };
+
+        let status = match runtime.inspect_status(container_id).await {
             Ok(s) => s,
             Err(e) => {
                 warn!(workload_id = %workload_id, container_id = %container_id, error = %e, "Failed to inspect workload");
