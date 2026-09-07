@@ -625,8 +625,8 @@ async fn query_vm_status(qmp_socket_path: &Path) -> Option<String> {
     let status = response.get("status")?.as_str()?;
 
     Some(match status {
-        "running" => "running".to_string(),
-        _ => "failed".to_string(),
+        "guest-panicked" | "internal-error" | "io-error" | "shutdown" => "failed".to_string(),
+        _ => "running".to_string(),
     })
 }
 
